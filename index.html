@@ -28,6 +28,105 @@
   </div>
   <div id="__bundler_loading">Unpacking...</div>
 
+  <!-- sheet-loader: fetch live Google Sheets data before app boots -->
+  <script>
+(function () {
+  const SHEET_ID = "1kkcJjJWu6lfQ1dbsUga_3_zZZClleatRM-wpyqECzYU";
+  const RESTAURANTS_GID = "183609818";
+  let SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/" + SHEET_ID +
+    "/gviz/tq?tqx=out:csv&gid=" + RESTAURANTS_GID + "&headers=1";
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const fromQuery = qs.get("sheet");
+    if (fromQuery === "clear") {
+      localStorage.removeItem("__sheet_url");
+    } else if (fromQuery) {
+      SHEET_CSV_URL = fromQuery;
+      localStorage.setItem("__sheet_url", fromQuery);
+    } else {
+      const saved = localStorage.getItem("__sheet_url");
+      if (saved) SHEET_CSV_URL = saved;
+    }
+  } catch (e) {}
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], field = "", inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i], n = text[i + 1];
+      if (inQuotes) {
+        if (c === '"' && n === '"') { field += '"'; i++; }
+        else if (c === '"') { inQuotes = false; }
+        else { field += c; }
+      } else {
+        if (c === '"') { inQuotes = true; }
+        else if (c === ",") { row.push(field); field = ""; }
+        else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+        else if (c === "\r") {}
+        else { field += c; }
+      }
+    }
+    if (field || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+  function rowsToRestaurants(rows) {
+    if (rows.length < 2) return null;
+    const headers = rows[0].map(h => h.trim());
+    const idx = (k) => headers.indexOf(k);
+    const grouped = { siam: [], ari: [], thonglor: [], asok: [], phromphong: [] };
+    const pppMap = { "฿": 200, "฿฿": 450, "฿฿฿": 700, "฿฿฿฿": 1200 };
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r[idx("area_id")] || !r[idx("name")]) continue;
+      const priceStr = r[idx("price_level")] || "";
+      const restaurant = {
+        id: r[idx("area_id")] + "-" + i,
+        name:     r[idx("name")],
+        cuisine:  r[idx("cuisine")] || "ไม่ระบุ",
+        price:    priceStr || "฿฿",
+        ppp:      pppMap[priceStr] || 500,
+        reviews:  parseInt(r[idx("reviews")], 10) || 0,
+        rating:   parseFloat(r[idx("rating")]) || 0,
+        bts:      r[idx("address")] || "",
+        capacity: "ดูที่ Google Maps",
+        why:      r[idx("why")] || "",
+        s: {
+          group:    parseFloat(r[idx("score_group")])     || 0,
+          rating:   parseFloat(r[idx("score_review")])    || 0,
+          price:    parseFloat(r[idx("score_price")])     || 0,
+          access:   parseFloat(r[idx("score_transport")]) || 0,
+          menu:     parseFloat(r[idx("score_data")])      || 0,
+          ambience: parseFloat(r[idx("score_special")])   || 0,
+          service:  0,
+        },
+        total:    parseFloat(r[idx("score_total")]) || 0,
+        pros:     (r[idx("pros")] || "").split("|").map(s => s.trim()).filter(Boolean),
+        cons:     (r[idx("cons")] || "").split("|").map(s => s.trim()).filter(Boolean),
+        source:   r[idx("url")] || "google.com/maps",
+      };
+      const areaId = r[idx("area_id")];
+      if (grouped[areaId]) grouped[areaId].push(restaurant);
+    }
+    return grouped;
+  }
+  window.__SHEET_LOADING__ = fetch(SHEET_CSV_URL, { cache: "no-store" })
+    .then(res => { if (!res.ok) throw new Error("HTTP " + res.status); return res.text(); })
+    .then(csv => {
+      const rows = parseCSV(csv);
+      const data = rowsToRestaurants(rows);
+      if (!data) throw new Error("empty sheet");
+      const total = Object.values(data).reduce((s, arr) => s + arr.length, 0);
+      if (total === 0) throw new Error("no valid rows");
+      window.RESTAURANTS = data;
+      window.__SHEET_LIVE__ = true;
+    })
+    .catch(err => {
+      console.warn("[sheet-loader] using mock data:", err.message);
+      window.__SHEET_LIVE__ = false;
+    });
+})();
+  </script>
+  <!-- end sheet-loader -->
+
   <script>
     
 document.addEventListener('DOMContentLoaded', async function() {
